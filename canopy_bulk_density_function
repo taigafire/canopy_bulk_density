@@ -1,0 +1,64 @@
+canopy_bulk_density_function=function(plot_name, plot_area, tree_list) {
+  # A function to calculate plot-level canopy bulk density from a list of trees and a plot area (m^2)
+  # This method assumes that all the data are Alaska black spruce.  Allometric equations for white spruce may not exist.
+  # Eliminate hardwood species from the tree_list before feeding the tree_list into the function.
+  # Eliminate dead stems which are assumed to be disintegrated enough to contribute no fuel to the flame front
+  # The function accepts one plot at a time
+  # Assumes metric units, diameter in centimeters and plot_area in meters
+  # The input tree_list data frame of trees requires these variables:
+  # live, Logical.  T or 1=live.  F or 0=dead
+  # diam_type. Logical.  0 f basal.  1 if breast height. 
+  # diam, Tree diameter, centimeters 
+  # ht, Tree height, meters
+  # cbh, Tree crown base height, meters
+
+  # Calculate individual tree crown weights from allometric equations based on diameter
+  # The equations and constants below come from Alexander ME, Stefner CN, Mason JA, Stocks BJ, Hartley GR, Maffey ME, Wotton BM, Taylor SW, Lavoie N, Dalrymple GN (2004) ‘Characterizing the jack pine-black spruce fuel complex of the International Crown Fire Modelling Experiment (ICFME)’
+  # Other equations could be substituted.
+  tree_list$live_needle=tree_list$live_round=tree_list$dead_round=0 # create fuel load vars to fill later
+  # calculate crown fuel load, large trees
+  idx=which((tree_list$live==1) & (tree_list$diam_type==1))
+  tree_list$live_needle[idx]= 0.23317*tree_list$diam[idx]^1.25384 # live needles
+  tree_list$live_round[idx]=0.13267*tree_list$diam[idx]^1.11546 # live roundwood <5mm
+  tree_list$dead_round[idx]= 0.05553*tree_list$diam[idx]^1.12281 # dead roundwood <5mm
+  # calculate crown fuel load, small trees
+  idx=which((tree_list$live==1) & (tree_list$diam_type==0))
+  tree_list$live_needle[idx]= 0.01534*tree_list$diam[idx]^2.36069 # live needles
+  tree_list$live_round[idx]=0.01202*tree_list$diam[idx]^2.09296 # live roundwood <5mm
+  tree_list$dead_round[idx]= 0.00588*tree_list$diam[idx]^1.99293 # dead roundwood <5mm
+  # calculate crown fuel load, dead large trees
+  idx=which((tree_list$live==0) & (tree_list$diam_type==1))
+  tree_list$live_needle[idx]= 0 # live needles
+  tree_list$live_round[idx]=0 # live roundwood <5mm
+  tree_list$dead_round[idx]= 0.05553*tree_list$diam[idx]^1.12281 # dead roundwood <5mm
+  # calculate crown fuel load, dead small trees
+  idx=which((tree_list$live==0) & (tree_list$diam_type==0))
+  tree_list$live_needle[idx]= 0 # live needles
+  tree_list$live_round[idx]=0 # live roundwood <5mm
+  tree_list$dead_round[idx]= 0.00588*tree_list$diam[idx]^1.99293 # dead roundwood <5mm
+  
+  # Distribute the fuel over the individual trees
+  # Create a data frame to hold the slices that contain fuel
+  # This data frame has columns for each tree and rows for the slices, e.g., 1-2 or 2-3 meters above the ground,
+  # E.g., for a 17 m tall canopy there are 18 rows or slices.
+  crown_occupation=dead_round=live_round=live_needle =as.data.frame(matrix(0, nrow=ceiling(max(tree_list$ht, na.rm=T)), ncol=length(tree_list$diam)))
+  j=1
+  for (j in 1:ncol(crown_occupation)) {
+    crown_occupation[(tree_list$cbh[j]+1):(ceiling(tree_list$ht[j])),j] = 1 # cbh is cbh+1 to bump it to the correct bin
+  }
+  crown_occupation[is.na(crown_occupation)] = 0 # change any NA to zero
+  for (i in 1:nrow(tree_list)) {
+  idx=which(crown_occupation[,i]>0) # how many slices contain fuel, are 1?
+  live_needle[,i][idx] = tree_list$live_needle[i]/(length(idx))  # Take the crown fuel weight and divide by the number of slices containing fuel.
+  live_round[,i][idx] = tree_list$live_round[i]/(length(idx))  # Take the crown fuel weight and divide by the number of slices containing fuel.
+  dead_round[,i][idx] = tree_list$dead_round[i]/(length(idx))  # Take the crown fuel weight and divide by the number of slices containing fuel.
+  }
+  return(
+  data.frame(
+    meter=(1:nrow(crown_occupation))-0.5, # Slice or meters above the ground.  Subtract 0.5 m to center the weight vertically in the slice
+    cabd_live_needle=rowSums(live_needle[,1:ncol(live_needle)])/plot_area, # Plot-level canopy bulk density for the slice
+    cabd_live_round=rowSums(live_round[,1:ncol(live_round)])/plot_area, # Plot-level canopy bulk density for the slice
+    cabd_dead_round=rowSums(dead_round[,1:ncol(dead_round)]/plot_area) # Plot-level canopy bulk density for the slice
+  )
+  )
+} # end function
